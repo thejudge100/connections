@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Armani connections</title>
 
-  <!-- Share previews -->
   <meta property="og:title" content="Armani connections" />
   <meta name="twitter:title" content="Armani connections" />
   <meta name="apple-mobile-web-app-title" content="Armani connections" />
@@ -16,7 +15,6 @@
       --text:#111111;
       --muted:#6b7280;
 
-      /* NYT-ish Connections colors */
       --yellow:#f3d35b;
       --green:#a8d08d;
       --blue:#9bb7e0;
@@ -24,7 +22,6 @@
 
       --tile:#f5f5f5;
       --tileBorder:#e5e7eb;
-      --tileSelected:#111111;
 
       --shadow: 0 8px 24px rgba(0,0,0,.08);
       --radius: 16px;
@@ -89,10 +86,7 @@
       -webkit-tap-highlight-color: transparent;
     }
     button:active{ transform: translateY(1px); }
-    button:disabled{
-      opacity:.45;
-      cursor:not-allowed;
-    }
+    button:disabled{ opacity:.45; cursor:not-allowed; }
 
     .board{
       display:grid;
@@ -102,7 +96,6 @@
     }
 
     .tile{
-      position:relative;
       border: 1px solid var(--tileBorder);
       background: var(--tile);
       border-radius: 14px;
@@ -119,7 +112,6 @@
       box-shadow: 0 1px 0 rgba(0,0,0,.04);
       transition: transform .05s ease, background .15s ease, border-color .15s ease, color .15s ease;
       -webkit-tap-highlight-color: transparent;
-      text-transform: none;
     }
     .tile:active{ transform: scale(.99); }
 
@@ -127,13 +119,6 @@
       background: #111;
       color:#fff;
       border-color:#111;
-    }
-
-    .tile.solved{
-      cursor:default;
-      color:#111;
-      border-color: transparent;
-      box-shadow: none;
     }
 
     .solvedRow{
@@ -208,15 +193,6 @@
       transform: translateX(-50%) translateY(-2px);
     }
 
-    footer{
-      margin-top: 18px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.35;
-      text-align:center;
-    }
-
-    /* Make tiles comfy on small phones */
     @media (max-width: 360px){
       .tile{ padding: 12px 8px; min-height: 52px; font-size: 14px; }
       button{ font-size: 13px; padding: 9px 11px; }
@@ -234,67 +210,45 @@
         <button id="shuffleBtn" title="Shuffle tiles">Shuffle</button>
         <button id="deselectBtn" title="Clear selection">Deselect</button>
         <button id="submitBtn" disabled title="Submit selection">Submit</button>
+        <button id="shareBtn" title="Share results">Share</button>
       </div>
     </header>
 
     <div id="solved" class="solvedRow"></div>
-
     <div id="board" class="board" aria-label="Connections grid"></div>
-
     <div id="status" class="status"></div>
-
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    // --- Puzzle data (your exact answers) ---
     const GROUPS = [
-      {
-        difficulty: "Easy",
-        colorVar: "--yellow",
-        hint: "Synonyms for a malted beverage",
-        words: ["Beer","Brew","Pint","Bev"]
-      },
-      {
-        difficulty: "Medium",
-        colorVar: "--green",
-        hint: "Components of our OG gamertags",
-        words: ["Stealth","Crust","Fractal","Hawk"]
-      },
-      {
-        difficulty: "Hard",
-        colorVar: "--blue",
-        hint: "Gun components",
-        words: ["Can","Optic","Stock","Shroud"]
-      },
-      {
-        difficulty: "Extra Hard",
-        colorVar: "--purple",
-        hint: "Things Armani fumbles",
-        words: ["Ellie","Football","Siege Round","Chess Game"]
-      }
+      { difficulty: "Easy",       colorVar: "--yellow", hint: "Card Games", words: ["Blacjack", "Bridge", "War", "Hearts"] },
+      { difficulty: "Medium",     colorVar: "--green",  hint: "Shorthand for Call Of Duty game modes", words: ["TDM", "FFA", "Dom", "Search"] },
+      { difficulty: "Hard",       colorVar: "--blue",   hint: "Surnames of famous designers", words: ["Armani", "Boss", "Ford", "Lauren"] },
+      { difficulty: "Extra Hard", colorVar: "--purple", hint: "Soy -", words: ["Zach", "Boy", "Bean", "Milk"] }
     ];
 
-    // Build quick lookup: word -> group index
+    const GROUP_EMOJI = ["🟨","🟩","🟦","🟪"];
+
     const wordToGroup = new Map();
     GROUPS.forEach((g, gi) => g.words.forEach(w => wordToGroup.set(w, gi)));
 
-    // --- State ---
-    let tiles = [];              // active unsolved tile words
-    let selected = new Set();    // selected words
-    let solvedGroups = new Set();// group indices solved
+    let tiles = [];
+    let selected = new Set();
+    let solvedGroups = new Set();
+    let solvedOrder = [];     // NEW: order solved
+    let guessRows = [];       // NEW: emoji rows per submit
 
-    // --- Elements ---
     const boardEl = document.getElementById("board");
     const solvedEl = document.getElementById("solved");
     const statusEl = document.getElementById("status");
     const shuffleBtn = document.getElementById("shuffleBtn");
     const deselectBtn = document.getElementById("deselectBtn");
     const submitBtn = document.getElementById("submitBtn");
+    const shareBtn = document.getElementById("shareBtn");
     const toastEl = document.getElementById("toast");
 
-    // --- Helpers ---
     function cssVar(name){
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     }
@@ -316,6 +270,7 @@
     function updateButtons(){
       submitBtn.disabled = selected.size !== 4;
       deselectBtn.disabled = selected.size === 0;
+      shareBtn.disabled = solvedGroups.size !== 4;
     }
 
     function setStatus(html){
@@ -328,12 +283,10 @@
       updateButtons();
     }
 
-    // --- Rendering ---
     function renderSolved(){
       solvedEl.innerHTML = "";
-      // Show solved groups in the classic order: Easy -> Medium -> Hard -> Extra Hard
-      GROUPS.forEach((g, gi) => {
-        if(!solvedGroups.has(gi)) return;
+      solvedOrder.forEach(gi => {
+        const g = GROUPS[gi];
 
         const card = document.createElement("div");
         card.className = "groupCard";
@@ -371,7 +324,6 @@
 
     function renderBoard(){
       boardEl.innerHTML = "";
-
       tiles.forEach(word => {
         const btn = document.createElement("div");
         btn.className = "tile";
@@ -398,33 +350,29 @@
       });
     }
 
-    function init(){
-      // Flatten all words
-      tiles = GROUPS.flatMap(g => g.words.slice());
-      shuffle(tiles);
-
-      selected.clear();
-      solvedGroups.clear();
-
-      renderSolved();
-      renderBoard();
-      updateButtons();
-      setStatus("");
-    }
-
-    // --- Game logic ---
-    function selectionGroupIndices(){
-      const inds = new Set();
-      for(const w of selected){
-        inds.add(wordToGroup.get(w));
+    function recordGuessEmoji(){
+      const counts = [0,0,0,0];
+      selected.forEach(w => {
+        const gi = wordToGroup.get(w);
+        counts[gi] += 1;
+      });
+      let row = "";
+      for(let gi = 0; gi < counts.length; gi++){
+        row += GROUP_EMOJI[gi].repeat(counts[gi]);
       }
-      return inds;
+      guessRows.push(row);
     }
 
     function submit(){
       if(selected.size !== 4) return;
 
-      const inds = selectionGroupIndices();
+      recordGuessEmoji(); // NEW: always record the row, even if wrong
+
+      const inds = new Set();
+      for(const w of selected){
+        inds.add(wordToGroup.get(w));
+      }
+
       if(inds.size === 1){
         const gi = [...inds][0];
         if(solvedGroups.has(gi)){
@@ -433,32 +381,49 @@
           return;
         }
 
-        // Mark solved: remove those tiles from board, reveal hint card
         solvedGroups.add(gi);
-        const solvedWords = new Set(GROUPS[gi].words);
+        solvedOrder.push(gi);
 
+        const solvedWords = new Set(GROUPS[gi].words);
         tiles = tiles.filter(w => !solvedWords.has(w));
 
         renderSolved();
         resetSelection();
 
-        // Show hint upon correct guess (toast + status)
         toast("Correct!");
         setStatus(`<strong>${GROUPS[gi].difficulty}</strong>: ${GROUPS[gi].hint}`);
 
-        // If complete
         if(solvedGroups.size === 4){
           toast("You win!");
           setStatus("All groups solved 🎉");
+          updateButtons(); 
         }
       } else {
         toast("Not a group");
         setStatus("Try again.");
-        // Keep selection (NYT style) or clear—here we keep it to feel fair
       }
     }
 
-    // --- Controls ---
+    function shareResults(){
+      const text =
+`Armani connections
+${guessRows.join("\n")}`;
+
+      if(navigator.share){
+        navigator.share({ title: "Armani connections", text });
+      } else if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(() => toast("Copied!"));
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        toast("Copied!");
+      }
+    }
+
     shuffleBtn.addEventListener("click", () => {
       shuffle(tiles);
       renderBoard();
@@ -471,12 +436,27 @@
     });
 
     submitBtn.addEventListener("click", submit);
+    shareBtn.addEventListener("click", shareResults);
 
-    // Nice-to-have: double tap empty space to deselect on mobile
     document.addEventListener("keydown", (e) => {
       if(e.key === "Enter") submit();
       if(e.key === "Escape") { resetSelection(); setStatus(""); }
     });
+
+    function init(){
+      tiles = GROUPS.flatMap(g => g.words.slice());
+      shuffle(tiles);
+
+      selected.clear();
+      solvedGroups.clear();
+      solvedOrder = [];
+      guessRows = [];
+
+      renderSolved();
+      renderBoard();
+      updateButtons();
+      setStatus("");
+    }
 
     init();
   </script>
